@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'errors.dart';
@@ -24,8 +25,7 @@ class WebSocketTransport implements ITransport {
   OnReceive? onReceive;
 
   // Methods
-  WebSocketTransport(AccessTokenFactory? accessTokenFactory, Logger? logger,
-      bool logMessageContent)
+  WebSocketTransport(AccessTokenFactory? accessTokenFactory, Logger? logger, bool logMessageContent)
       : this._accessTokenFactory = accessTokenFactory,
         this._logger = logger,
         this._logMessageContent = logMessageContent;
@@ -36,21 +36,13 @@ class WebSocketTransport implements ITransport {
 
     _logger?.finest("(WebSockets transport) Connecting");
 
-    if (_accessTokenFactory != null) {
-      final token = await _accessTokenFactory!();
-      if (!isStringEmpty(token)) {
-        final encodedToken = Uri.encodeComponent(token);
-        url = url! +
-            (url.indexOf("?") < 0 ? "?" : "&") +
-            "access_token=$encodedToken";
-      }
-    }
-
     var websocketCompleter = Completer();
     var opened = false;
     url = url!.replaceFirst('http', 'ws');
     _logger?.finest("WebSocket try connecting to '$url'.");
-    _webSocket = WebSocketChannel.connect(Uri.parse(url));
+    _webSocket = IOWebSocketChannel.connect(Uri.parse(url), headers: {
+      'tnx': await _accessTokenFactory?.call() ?? '',
+    });
     opened = true;
     if (!websocketCompleter.isCompleted) websocketCompleter.complete();
     _logger?.info("WebSocket connected to '$url'.");
@@ -58,8 +50,8 @@ class WebSocketTransport implements ITransport {
       // onData
       (Object? message) {
         if (_logMessageContent && message is String) {
-          _logger?.finest(
-              "(WebSockets transport) data received. message ${getDataDetail(message, _logMessageContent)}.");
+          _logger
+              ?.finest("(WebSockets transport) data received. message ${getDataDetail(message, _logMessageContent)}.");
         } else {
           _logger?.finest("(WebSockets transport) data received.");
         }
@@ -67,8 +59,7 @@ class WebSocketTransport implements ITransport {
           try {
             onReceive!(message);
           } catch (error) {
-            _logger?.severe(
-                "(WebSockets transport) error calling onReceive, error: $error");
+            _logger?.severe("(WebSockets transport) error calling onReceive, error: $error");
             _close();
           }
         }
@@ -92,8 +83,7 @@ class WebSocketTransport implements ITransport {
           }
         } else {
           if (!websocketCompleter.isCompleted) {
-            websocketCompleter
-                .completeError("There was an error with the transport.");
+            websocketCompleter.completeError("There was an error with the transport.");
           }
         }
       },
@@ -105,8 +95,7 @@ class WebSocketTransport implements ITransport {
   @override
   Future<void> send(Object data) {
     if (_webSocket != null) {
-      _logger?.finest(
-          "(WebSockets transport) sending data. ${getDataDetail(data, true)}.");
+      _logger?.finest("(WebSockets transport) sending data. ${getDataDetail(data, true)}.");
       //_logger?.finest("(WebSockets transport) sending data.");
 
       if (data is String) {
